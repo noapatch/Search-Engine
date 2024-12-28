@@ -69,7 +69,7 @@ def search():
 
 def construct_url(query, func_name):
     # constructing the url from the query terms
-    url = f"https://1dcc-5-29-22-122.ngrok-free.app/{func_name}?query="
+    url = f"https://ba38-5-29-22-122.ngrok-free.app/{func_name}?query="
     for i in range(0, len(query)):
         if i == 0:
             url += f"{query[i]}"
