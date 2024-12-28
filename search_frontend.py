@@ -1,24 +1,39 @@
+from collections import Counter
+import pandas as pd
 from flask import Flask, request, jsonify
 import nltk
 import re
+import requests
+from bs4 import BeautifulSoup
 
 from nltk.corpus import stopwords
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
 
 def tokenize(text):
     english_stopwords = frozenset(stopwords.words('english'))
     corpus_stopwords = ["category", "references", "also", "external", "links",
-                    "may", "first", "see", "history", "people", "one", "two",
-                    "part", "thumb", "including", "second", "following",
-                    "many", "however", "would", "became"]
+                        "may", "first", "see", "history", "people", "one", "two",
+                        "part", "thumb", "including", "second", "following",
+                        "many", "however", "would", "became"]
 
     all_stopwords = english_stopwords.union(corpus_stopwords)
     RE_WORD = re.compile(r"""[\#\@\w](['\-]?\w){2,24}""", re.UNICODE)
-    return RE_WORD.findall(text.lower()),all_stopwords
+    return RE_WORD.findall(text.lower()), all_stopwords
+
+
+def count_words(tokens, id, all_stopwords):
+    filter_tokens = [token for token in tokens if token not in all_stopwords]
+    tf_tokens = Counter(filter_tokens)
+    # for each token return a tuple of the token with the id that we got and the tf
+    return [(token, (id, tf)) for token, tf in tf_tokens.items()]
 
 
 class MyFlaskApp(Flask):
     def run(self, host=None, port=None, debug=None, **options):
         super(MyFlaskApp, self).run(host=host, port=port, debug=debug, **options)
+
 
 app = MyFlaskApp(__name__)
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
@@ -45,11 +60,51 @@ def search():
     res = []
     query = request.args.get('query', '')
     if len(query) == 0:
-      return jsonify(res)
+        return jsonify(res)
     # BEGIN SOLUTION
-
+    res=  search_body()
     # END SOLUTION
     return jsonify(res)
+
+
+def construct_url(query, func_name):
+    # constructing the url from the query terms
+    url = f"https://1dcc-5-29-22-122.ngrok-free.app/{func_name}?query="
+    for i in range(0, len(query)):
+        if i == 0:
+            url += f"{query[i]}"
+        else:
+            url += f"+{query[i]}"
+    return url
+
+
+def tf_idf(data):
+    vectorize = TfidfVectorizer(stop_words='english')
+    # compute the matrix of ti-idf of the data
+    dataFrame = vectorize.fit_transform(data)
+    # creat the dataFrame that the columns are the terms in the data
+    dataFrame = pd.DataFrame(dataFrame.toarray(), columns=vectorize.get_feature_names_out())
+    return dataFrame, vectorize
+
+
+def cosine_sim(queries,tfidf):
+    matrix_cosine_sim = cosine_similarity(queries, tfidf)
+    # creat a data farme where the columns are the num of the document and the rows is the num of the queries
+    cosine_sim_df = pd.DataFrame(matrix_cosine_sim,columns=[i for i in range(tfidf.shape[0])], index=[i for i in range(queries.shape[0])])
+    return cosine_sim_df
+
+
+def get_top_n(df, N=100):
+    topN = {}
+    for query_id in df.index:
+        # get all the scores of all the docs with the query as list of pairs
+        docs_score = list(zip(df.columns, df.loc[query_id]))
+        # sort the list in descending order
+        sorted_docs = sorted(docs_score, key=lambda x: x[1], reverse=True)
+        # add  to the dictionary the N relevant docs
+        topN[query_id] = sorted_docs[:N]
+    return topN
+
 
 @app.route("/search_body")
 def search_body():
@@ -70,11 +125,29 @@ def search_body():
     res = []
     query = request.args.get('query', '')
     if len(query) == 0:
-      return jsonify(res)
+        return jsonify(res)
     # BEGIN SOLUTION
 
+    url = construct_url(query, "search_body")
+    response = requests.get(url)
+    #in case of success request
+    if response.status_code == 200:
+        parser = BeautifulSoup(response.text, 'html.parser')
+        #find the body <> in html parser
+        body = parser.find('body')
+        #in case of success of finding body
+        if body:
+            tokens, all_stopwords = tokenize(body)
+            list_of_tok_tf = count_words(tokens, hash(url), all_stopwords)
+            df_tfidfvect, tfidfvectorizer = tf_idf(list_of_tok_tf)
+            queries_vector = tfidfvectorizer.transform(query)
+            cosine_sim_df = cosine_sim(queries_vector, df_tfidfvect)
+            res = get_top_n(cosine_sim_df)
+        else:
+            pass
     # END SOLUTION
     return jsonify(res)
+
 
 @app.route("/search_title")
 def search_title():
@@ -100,11 +173,12 @@ def search_title():
     res = []
     query = request.args.get('query', '')
     if len(query) == 0:
-      return jsonify(res)
+        return jsonify(res)
     # BEGIN SOLUTION
 
     # END SOLUTION
     return jsonify(res)
+
 
 @app.route("/search_anchor")
 def search_anchor():
@@ -130,11 +204,12 @@ def search_anchor():
     res = []
     query = request.args.get('query', '')
     if len(query) == 0:
-      return jsonify(res)
+        return jsonify(res)
     # BEGIN SOLUTION
-    
+
     # END SOLUTION
     return jsonify(res)
+
 
 @app.route("/get_pagerank", methods=['POST'])
 def get_pagerank():
@@ -154,11 +229,12 @@ def get_pagerank():
     res = []
     wiki_ids = request.get_json()
     if len(wiki_ids) == 0:
-      return jsonify(res)
+        return jsonify(res)
     # BEGIN SOLUTION
 
     # END SOLUTION
     return jsonify(res)
+
 
 @app.route("/get_pageview", methods=['POST'])
 def get_pageview():
@@ -180,7 +256,7 @@ def get_pageview():
     res = []
     wiki_ids = request.get_json()
     if len(wiki_ids) == 0:
-      return jsonify(res)
+        return jsonify(res)
     # BEGIN SOLUTION
 
     # END SOLUTION
